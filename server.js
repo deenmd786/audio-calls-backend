@@ -45,16 +45,25 @@ io.on("connection", (socket) => {
 
       console.log(`🤝 Partnership: ${currentUserInfo.userName} (${socket.id}) <--> ${partnerInfo.userName} (${partnerId})`);
 
-      // Notify both users with user names
-      io.to(socket.id).emit("immediate-connection", { 
+      // --- CRITICAL FIX: Only ONE side should create offer ---
+      
+      // User who JUST clicked (socket.id) creates the offer
+      // User who was WAITING (partnerId) waits for the offer
+      
+      // Notify NEW user (who just clicked) to create offer
+      io.to(socket.id).emit("partner-found", { 
         partnerId: partnerId,
-        userName: partnerInfo.userName 
+        userName: partnerInfo.userName,
+        shouldInitiate: true // This user should create the offer
       });
       
-      io.to(partnerId).emit("partner-found", { 
+      // Notify WAITING user to wait for offer
+      io.to(partnerId).emit("immediate-connection", { 
         partnerId: socket.id,
-        userName: currentUserInfo.userName 
+        userName: currentUserInfo.userName,
+        shouldInitiate: false // This user should wait for offer
       });
+      
     } else {
       // No partner found, add self to waiting list
       if (!waitingUsers.has(socket.id)) {
@@ -69,29 +78,21 @@ io.on("connection", (socket) => {
   });
 
   socket.on("offer", (data) => {
-    const fromUser = userMap.get(socket.id) || { userName: 'Anonymous' };
-  const targetUserName = data.userInfo?.name || fromUser.userName;
-    
-    console.log(`📩 Offer from ${targetUserName} (${socket.id}) -> ${data.to}`);
-    
-    io.to(data.to).emit("offer", { 
-      from: socket.id, 
-      sdp: data.sdp,
-    userInfo: data.userInfo || { userName: targetUserName }
-    });
+  console.log(`📩 Offer from ${socket.id} -> ${data.to}`);
+  io.to(data.to).emit("offer", {
+    from: socket.id,
+    sdp: data.sdp
   });
+});
 
-  socket.on("answer", (data) => {
-    const fromUser = userMap.get(socket.id) || { userName: 'Anonymous' };
-    console.log(`📩 Answer from ${fromUser.userName} (${socket.id}) -> ${data.to}`);
-    
-    io.to(data.to).emit("answer", { 
-      from: socket.id, 
-      sdp: data.sdp,
-    userInfo: data.userInfo || userMap.get(socket.id)
- 
-    });
+socket.on("answer", (data) => {
+  console.log(`📩 Answer from ${socket.id} -> ${data.to}`);
+  io.to(data.to).emit("answer", {
+    from: socket.id,
+    sdp: data.sdp
   });
+});
+
 
   socket.on("ice-candidate", (data) => {
     const fromUser = userMap.get(socket.id) || { userName: 'Anonymous' };
@@ -111,8 +112,6 @@ io.on("connection", (socket) => {
     userMap.delete(socket.id);
   });
 
-  // Send immediate user-info request when client connects
-  socket.emit("request-user-info");
 });
 
 const PORT = process.env.PORT || 3000;
